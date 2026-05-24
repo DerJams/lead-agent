@@ -1,0 +1,117 @@
+name: Small Commercial Real Estate Law Boutique (Dallas/Texas)
+description: >
+  Small to mid-size law firms specializing in commercial real estate transactions
+  in Dallas and greater Texas. Target: 3-15 attorneys, active deal flow,
+  owner-operated or small-partnership structure.
+
+search_queries:
+  templates:
+    - "commercial real estate law firm {city} Texas"
+    - "commercial real estate attorneys boutique {city} TX"
+    - "CRE transaction lawyers small firm {city} Texas"
+    - "commercial real estate law firm {city} site:*.com"
+  geo_focus:
+    - Dallas
+    - Fort Worth
+    - Austin
+    - Houston
+    - San Antonio
+  negative_keywords:
+    - martindale
+    - avvo
+    - findlaw
+    - justia
+    - directory
+    - news
+    - article
+    - ranking
+
+extraction_schema:
+  - name: firm_name
+    type: string
+    description: Legal name of the law firm
+    required: true
+  - name: website_url
+    type: string
+    description: Primary website URL
+    required: true
+  - name: attorney_count
+    type: integer
+    description: Total number of attorneys including partners and associates
+    required: true
+  - name: partners
+    type: list
+    description: Names of named or equity partners
+    required: false
+  - name: practice_areas
+    type: list
+    description: Practice areas advertised on the site (e.g. commercial real estate, leasing, acquisition)
+    required: true
+  - name: location
+    type: string
+    description: City and state of the firm's primary office
+    required: true
+  - name: contact_info
+    type: string
+    description: Primary contact email or phone number
+    required: false
+
+hard_filters:
+  - field: attorney_count
+    operator: between
+    value: [3, 15]
+  - field: practice_areas
+    operator: contains
+    value: commercial real estate
+
+soft_signals:
+  - name: cre_specialization
+    description: Firm is primarily or exclusively focused on commercial real estate
+    weight: 0.35
+    prompt: >
+      Based on this firm's website, how specialized are they in commercial real estate?
+      10 = CRE is their sole or dominant focus. 1 = CRE is one minor area among many unrelated ones.
+      Return a single integer 1-10.
+
+  - name: deal_activity
+    description: Evidence of active deal flow - transactions, tombstones, or client announcements
+    weight: 0.25
+    prompt: >
+      Does the firm's website show evidence of active commercial real estate deal activity?
+      Look for recent transactions, deal announcements, tombstones, or case studies.
+      10 = strong recent deal evidence. 1 = no visible activity. Return a single integer 1-10.
+
+  - name: owner_operated
+    description: Firm is independently owned, not a branch of a larger regional or national firm
+    weight: 0.20
+    prompt: >
+      Does this firm appear to be independently owned (small partnership or boutique)
+      rather than a branch office of a larger firm?
+      10 = clearly independent boutique. 1 = clearly a branch or subsidiary. Return a single integer 1-10.
+
+  - name: texas_market_depth
+    description: Firm demonstrates deep Texas or Dallas-specific market knowledge
+    weight: 0.20
+    prompt: >
+      How strongly does this firm demonstrate Texas-specific or Dallas-specific market knowledge?
+      Look for local deal references, Texas market commentary, local bar or association memberships.
+      10 = deep Texas/Dallas focus. 1 = generic national or non-Texas presence. Return a single integer 1-10.
+
+scoring:
+  hard_filter_policy: gate
+  soft_signal_normalization: weighted_average
+  min_qualify_score: 0.55
+
+output_fields:
+  - firm_name
+  - website_url
+  - attorney_count
+  - partners
+  - practice_areas
+  - location
+  - contact_info
+  - score
+  - cre_specialization
+  - deal_activity
+  - owner_operated
+  - texas_market_depth
