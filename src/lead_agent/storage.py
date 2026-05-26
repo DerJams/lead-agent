@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS scrape_cache (
     content    TEXT NOT NULL,
     scraped_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS search_cache (
+    query     TEXT PRIMARY KEY,
+    results   TEXT NOT NULL,
+    cached_at TEXT NOT NULL
+);
 """
 
 
@@ -215,3 +221,28 @@ class Storage:
         if age.total_seconds() > ttl_hours * 3600:
             return None
         return row["content"]
+
+    # -- Search cache --------------------------------------------------------
+
+    async def cache_search(self, query: str, results: list[dict[str, Any]]) -> None:
+        """Insert or replace cached search results (JSON) for a query."""
+        await self._conn.execute(
+            "INSERT OR REPLACE INTO search_cache (query, results, cached_at) VALUES (?, ?, ?)",
+            (query, json.dumps(results), _now()),
+        )
+        await self._conn.commit()
+
+    async def get_cached_search(
+        self, query: str, ttl_hours: float = 168.0
+    ) -> list[dict[str, Any]] | None:
+        """Return cached results if within TTL (default 7 days); None on miss or expiry."""
+        async with self._conn.execute(
+            "SELECT results, cached_at FROM search_cache WHERE query = ?", (query,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        age = datetime.now(UTC) - datetime.fromisoformat(row["cached_at"])
+        if age.total_seconds() > ttl_hours * 3600:
+            return None
+        return json.loads(row["results"])
