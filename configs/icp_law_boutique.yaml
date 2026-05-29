@@ -56,13 +56,7 @@ extraction_schema:
     description: Primary contact email or phone number
     required: false
 
-hard_filters:
-  - field: attorney_count
-    operator: between
-    value: [3, 15]
-  - field: practice_areas
-    operator: contains
-    value: commercial real estate
+hard_filters: []
 
 soft_signals:
   - name: cre_specialization
