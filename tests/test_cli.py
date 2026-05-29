@@ -298,9 +298,3 @@ class TestCommandLine:
     def test_run_requires_config_option(self) -> None:
         result = CliRunner().invoke(app, ["run"])
         assert result.exit_code != 0
-
-    def test_eval_is_placeholder(self, tmp_path: Path) -> None:
-        config = write_config(tmp_path)
-        result = CliRunner().invoke(app, ["eval", "--config", str(config)])
-        assert result.exit_code == 0
-        assert "not yet implemented" in result.output

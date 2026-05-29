@@ -87,6 +87,7 @@ lead-agent/
 │       ├── scorer.py         # Hybrid ICP scoring
 │       ├── storage.py        # SQLite cache and run state
 │       ├── llm.py            # LiteLLM adapter, single point for all LLM calls
+│       ├── eval.py           # Eval harness logic (in package so the CLI can import it)
 │       └── config.py         # ICP config loading and validation
 ├── tests/
 │   ├── test_scorer.py

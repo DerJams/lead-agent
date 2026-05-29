@@ -1,0 +1,73 @@
+# Hand-labeled eval set for the small commercial real estate law boutique ICP.
+#
+# ⚠️  TEMPLATE — REPLACE THE EXAMPLES BELOW.
+# The three firms here are illustrative placeholders (synthetic, not real). Replace
+# them with 15-25 real firms you have personally assessed, so precision/recall/MAE
+# reflect genuine ground truth.
+#
+# Per firm:
+#   profile             - the fields the hard filters read (attorney_count,
+#                         practice_areas, etc.). What extraction would ideally produce.
+#   text                - representative website text the soft-signal LLM judges.
+#   expected_score      - your fit estimate, 0.0-1.0.
+#   expected_qualified  - optional lead/no-lead call. If omitted, it is derived from
+#                         expected_score >= the ICP's min_qualify_score (0.55).
+#
+# Run with: uv run lead-agent eval --config configs/icp_law_boutique.yaml
+
+name: law_boutique_eval
+
+firms:
+  - name: "Example Strong-Fit CRE Boutique"
+    url: "https://example-strong.com/"
+    profile:
+      firm_name: "Example Strong-Fit CRE Boutique"
+      website_url: "https://example-strong.com/"
+      attorney_count: 7
+      partners: ["Jane Partner", "John Partner"]
+      practice_areas: ["commercial real estate", "leasing", "acquisitions"]
+      location: "Dallas, TX"
+      contact_info: "info@example-strong.com"
+    text: |
+      Example Strong-Fit CRE Boutique is a Dallas firm focused exclusively on
+      commercial real estate transactions: acquisitions, dispositions, leasing,
+      and development across Texas markets. Recent representative deals include a
+      $40M mixed-use acquisition in Uptown Dallas and a portfolio leasing matter
+      for a regional developer. The firm is independently owned by its founding
+      partners and active in the Dallas Bar Association real estate section.
+    expected_score: 0.88
+    expected_qualified: true
+
+  - name: "Example Full-Service General Practice"
+    url: "https://example-general.com/"
+    profile:
+      firm_name: "Example Full-Service General Practice"
+      website_url: "https://example-general.com/"
+      attorney_count: 9
+      partners: ["A. Lawyer"]
+      practice_areas: ["family law", "personal injury", "estate planning"]
+      location: "Dallas, TX"
+      contact_info: "contact@example-general.com"
+    text: |
+      Example Full-Service General Practice handles family law, personal injury,
+      criminal defense, and estate planning for individuals across North Texas.
+      No commercial real estate practice is advertised.
+    expected_score: 0.10
+    expected_qualified: false
+
+  - name: "Example Large Multi-Office Firm"
+    url: "https://example-large.com/"
+    profile:
+      firm_name: "Example Large Multi-Office Firm"
+      website_url: "https://example-large.com/"
+      attorney_count: 120
+      partners: ["Many Partners"]
+      practice_areas: ["commercial real estate", "corporate", "litigation", "tax"]
+      location: "Dallas, TX"
+      contact_info: "info@example-large.com"
+    text: |
+      Example Large Multi-Office Firm is a national practice with 120+ attorneys
+      across offices in Dallas, Houston, New York, and Chicago. Its commercial
+      real estate group is one of many departments serving institutional clients.
+    expected_score: 0.30
+    expected_qualified: false

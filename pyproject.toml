@@ -46,3 +46,4 @@ ignore = ["ANN101", "ANN102"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+python_files = ["test_*.py", "run_evals.py"]

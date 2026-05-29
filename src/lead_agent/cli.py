@@ -12,11 +12,14 @@ import typer
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .config import load_icp
+from .eval import evaluate, load_eval_set
+from .llm import get_client
 from .pipeline import resume_run, run_pipeline
 from .storage import Storage
 
 if TYPE_CHECKING:
     from .config import ICPConfig
+    from .eval import EvalReport
     from .llm import LLMClient
     from .pipeline import RunResult
     from .scraper import Scraper
@@ -126,6 +129,43 @@ async def _async_run(
     return result, out_path
 
 
+async def _async_eval(
+    config: Path,
+    eval_set_path: Path,
+    *,
+    client: LLMClient | None = None,
+) -> EvalReport:
+    icp = load_icp(config)
+    eval_set = load_eval_set(eval_set_path)
+    client = client or get_client()
+    return await evaluate(icp, eval_set, client)
+
+
+def _print_eval_report(report: EvalReport) -> None:
+    metrics = report.metrics
+    stats = report.stats
+    typer.echo(f"Evaluated {metrics.n} firms")
+    typer.echo(
+        f"  precision: {metrics.precision:.3f}  recall: {metrics.recall:.3f}  "
+        f"f1: {metrics.f1:.3f}"
+    )
+    typer.echo(f"  MAE:       {metrics.mae:.3f}")
+    typer.echo(f"  confusion: TP={metrics.tp} FP={metrics.fp} FN={metrics.fn} TN={metrics.tn}")
+    typer.echo(
+        f"  llm calls: {stats.llm_calls}  tokens: {stats.total_tokens}  "
+        f"cost: ${stats.cost_usd:.4f}"
+    )
+    typer.echo("")
+    typer.echo(f"  {'firm':<28} {'sys':>6} {'exp':>6} {'err':>6}  match")
+    for row in report.results:
+        match = "ok" if row.system_qualified == row.expected_qualified else "MISS"
+        name = row.name if len(row.name) <= 27 else row.name[:27]
+        typer.echo(
+            f"  {name:<28} {row.system_score:>6.3f} {row.expected_score:>6.3f} "
+            f"{row.abs_error:>6.3f}  {match}"
+        )
+
+
 def _print_summary(result: RunResult, out_path: Path) -> None:
     stats = result.stats
     typer.echo(f"Run {result.run_id}")
@@ -181,9 +221,20 @@ def run(
 @app.command()
 def eval(
     config: Path = typer.Option(..., "--config", "-c", help="Path to ICP YAML config."),
+    eval_set: Path = typer.Option(
+        Path("tests/eval/eval_set_law.yaml"),
+        "--eval-set",
+        "-e",
+        help="Path to the hand-labeled eval set YAML.",
+    ),
 ) -> None:
-    """Run the eval harness against hand-labeled firms."""
-    typer.echo(f"Eval harness not yet implemented (step 11). Config: {config}")
+    """Score hand-labeled firms and report precision/recall/F1/MAE."""
+    try:
+        report = asyncio.run(_async_eval(config, eval_set))
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    _print_eval_report(report)
 
 
 if __name__ == "__main__":
