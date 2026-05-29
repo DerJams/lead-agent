@@ -1,0 +1,86 @@
+# Hand-labeled eval set for the small/mid CPA firm (AI automation buyer) ICP.
+#
+# ⚠️  TEMPLATE — REPLACE THE EXAMPLES BELOW.
+# These three firms are illustrative placeholders (synthetic, not real). Replace
+# them with 15-25 real firms you have personally assessed, so precision/recall/MAE
+# reflect genuine ground truth.
+#
+# The examples are chosen to exercise the single hard filter from both sides:
+#   - one firm PASSES employee_count [10, 75]   (reaches soft-signal scoring)
+#   - one firm FAILS below the band (too small)  (gate short-circuit, no LLM call)
+#   - one firm FAILS above the band (too large)  (gate short-circuit, no LLM call)
+# A future labeled set can verify the gate without any LLM calls.
+#
+# Per firm:
+#   profile             - fields the hard filter reads (employee_count) plus context.
+#   text                - representative website text the soft-signal LLM judges.
+#   expected_score      - your fit estimate, 0.0-1.0.
+#   expected_qualified  - optional lead/no-lead call. If omitted, derived from
+#                         expected_score >= the ICP's min_qualify_score (0.55).
+#
+# Run with: uv run lead-agent eval --config configs/icp_cpa_firm.yaml \
+#             --eval-set tests/eval/eval_set_cpa.yaml
+
+name: cpa_firm_eval
+
+firms:
+  - name: "Example Cloud-First CPA & Advisory"
+    url: "https://example-cpa-strong.com/"
+    profile:
+      firm_name: "Example Cloud-First CPA & Advisory"
+      website_url: "https://example-cpa-strong.com/"
+      employee_count: 35
+      services: ["tax", "bookkeeping", "payroll", "advisory", "CAS"]
+      software_stack: ["QuickBooks Online", "Xero", "Bill.com", "Gusto"]
+      partners: ["Dana Principal", "Sam Partner"]
+      location: "Austin, TX"
+      contact_info: "hello@example-cpa-strong.com"
+      hiring: true
+    text: |
+      Example Cloud-First CPA & Advisory is an Austin firm of 35 serving growing
+      small businesses. We run a fully cloud, paperless stack (QuickBooks Online,
+      Xero, Bill.com, Gusto) with client portals, and handle high volumes of tax
+      prep, bookkeeping, and payroll alongside client accounting services (CAS) and
+      virtual CFO advisory. We're hiring across staff accountant and advisory roles
+      as we scale. Led by founding partners Dana and Sam.
+    expected_score: 0.86
+    expected_qualified: true
+
+  - name: "Example Solo Tax Practitioner"
+    url: "https://example-cpa-solo.com/"
+    profile:
+      firm_name: "Example Solo Tax Practitioner"
+      website_url: "https://example-cpa-solo.com/"
+      employee_count: 4
+      services: ["tax", "bookkeeping"]
+      software_stack: ["QuickBooks Desktop"]
+      partners: ["Pat Owner"]
+      location: "Denver, CO"
+      contact_info: "pat@example-cpa-solo.com"
+      hiring: false
+    text: |
+      Example Solo Tax Practitioner is a small Denver shop of four handling
+      individual and small-business tax returns and basic bookkeeping. Personal,
+      hands-on service from owner Pat.
+    expected_score: 0.20
+    expected_qualified: false
+
+  - name: "Example Regional Enterprise Firm"
+    url: "https://example-cpa-large.com/"
+    profile:
+      firm_name: "Example Regional Enterprise Firm"
+      website_url: "https://example-cpa-large.com/"
+      employee_count: 200
+      services: ["tax", "audit", "advisory", "wealth management"]
+      software_stack: ["CCH Axcess", "internal data platform"]
+      partners: ["Many Partners"]
+      location: "Atlanta, GA"
+      contact_info: "info@example-cpa-large.com"
+      hiring: true
+    text: |
+      Example Regional Enterprise Firm is a 200-person multi-office practice with a
+      dedicated technology and analytics team, an internal data platform, and
+      enterprise audit and advisory practices serving mid-market and institutional
+      clients across the Southeast.
+    expected_score: 0.25
+    expected_qualified: false

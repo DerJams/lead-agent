@@ -1,0 +1,169 @@
+name: Small/Mid CPA Firm (AI Automation Buyer)
+description: >
+  Small to mid-size US CPA and accounting firms (roughly 10-75 staff) with a
+  compliance-plus-advisory mix, concentrated in growth metros. Target: firms with
+  enough repetitive, high-volume work (tax prep, bookkeeping, payroll, recs) to
+  justify automation, that are not yet large enough to have in-house data/IT teams
+  or enterprise RPA vendors. These are credible buyers of AI/automation services.
+
+search_queries:
+  templates:
+    - "CPA firm {city}"
+    - "accounting firm {city} small business"
+    - "tax and advisory CPA firm {city}"
+    - "outsourced accounting services firm {city}"
+    - "cloud accounting CPA firm {city}"
+    - "client accounting services firm {city}"
+  geo_focus:
+    - Austin
+    - Denver
+    - Atlanta
+    - Phoenix
+    - Charlotte
+    - Nashville
+  negative_keywords:
+    - directory
+    - ranking
+    - top 10
+    - best
+    - thumbtack
+    - clutch
+    - upcity
+    - expertise
+    - yelp
+    - indeed
+    - glassdoor
+    - intuit
+    - turbotax
+    - h&r block
+    - jackson hewitt
+    - franchise
+
+extraction_schema:
+  - name: firm_name
+    type: string
+    description: Legal or trade name of the accounting firm
+    required: true
+  - name: website_url
+    type: string
+    description: Primary website URL
+    required: true
+  - name: employee_count
+    type: integer
+    description: Total number of staff at the firm (all roles, not just licensed CPAs)
+    required: true
+  - name: services
+    type: list
+    description: >
+      Accounting services advertised on the site (e.g. tax, bookkeeping, payroll,
+      audit, advisory, CAS, virtual CFO)
+    required: true
+  - name: software_stack
+    type: list
+    description: >
+      Accounting or automation tools mentioned (e.g. QuickBooks Online, Xero,
+      Bill.com, Gusto, client portals)
+    required: false
+  - name: partners
+    type: list
+    description: Names of partners, owners, or principals
+    required: false
+  - name: location
+    type: string
+    description: City and state of the firm's primary office
+    required: true
+  - name: contact_info
+    type: string
+    description: Primary contact email or phone number
+    required: false
+  - name: hiring
+    type: boolean
+    description: Whether the site shows open roles or a "we're hiring" / careers signal
+    required: false
+
+hard_filters:
+  - field: employee_count
+    operator: between
+    value: [10, 75]
+
+soft_signals:
+  - name: tech_adoption_signals
+    description: Firm shows adoption of a modern cloud accounting stack and automation
+    weight: 0.25
+    prompt: >
+      Based on this firm's website, how strongly do they show adoption of a modern
+      cloud accounting stack (e.g. QuickBooks Online, Xero, Bill.com, Gusto, client
+      portals, "paperless", app integrations, existing automation)?
+      10 = clearly cloud-first and automation-aware. 1 = no sign of modern tooling.
+      Return a single integer 1-10.
+
+  - name: compliance_volume_fit
+    description: Firm does high-volume, repetitive compliance work that is automatable
+    weight: 0.20
+    prompt: >
+      Does this firm appear to do high-volume, repetitive compliance work that is a
+      good fit for automation - tax preparation, bookkeeping, payroll, bank
+      reconciliations, or audit support at scale?
+      10 = clearly volume compliance-heavy. 1 = boutique advisory-only or no visible
+      compliance volume. Return a single integer 1-10.
+
+  - name: growth_or_capacity_strain
+    description: Evidence of growth or capacity strain that motivates automation
+    weight: 0.20
+    prompt: >
+      Does the firm show signs of growth or capacity strain - hiring pushes, "fast
+      growing", expansion, many open roles, or commentary about workload and staffing?
+      10 = strong growth/capacity-pain signals. 1 = static, no growth or hiring signals.
+      Return a single integer 1-10.
+
+  - name: advisory_orientation
+    description: Firm positions toward advisory / CAS beyond pure compliance
+    weight: 0.15
+    prompt: >
+      How strongly does this firm position itself toward advisory work beyond pure
+      compliance - client accounting services (CAS), virtual CFO, business consulting,
+      or strategic advisory?
+      10 = clearly advisory-forward. 1 = pure tax/bookkeeping compliance only.
+      Return a single integer 1-10.
+
+  - name: decision_maker_accessibility
+    description: A budget-holding decision maker is identifiable and reachable
+    weight: 0.12
+    prompt: >
+      Is a budget-holding decision maker identifiable and reachable - named partners
+      or owners, a founder, direct contact details, a small-partnership structure
+      rather than a faceless large firm?
+      10 = clearly owner/partner-led and reachable. 1 = no identifiable decision maker.
+      Return a single integer 1-10.
+
+  - name: digital_maturity_of_site
+    description: General digital maturity and tech-forwardness of the web presence
+    weight: 0.08
+    prompt: >
+      How digitally mature is the firm's web presence - a modern website, blog or
+      content, online booking, live chat, newsletter, or active social presence?
+      10 = polished and digitally active. 1 = minimal or outdated web presence.
+      Return a single integer 1-10.
+
+scoring:
+  hard_filter_policy: gate
+  soft_signal_normalization: weighted_average
+  min_qualify_score: 0.55
+
+output_fields:
+  - firm_name
+  - website_url
+  - employee_count
+  - services
+  - software_stack
+  - partners
+  - location
+  - contact_info
+  - hiring
+  - score
+  - tech_adoption_signals
+  - compliance_volume_fit
+  - growth_or_capacity_strain
+  - advisory_orientation
+  - decision_maker_accessibility
+  - digital_maturity_of_site
