@@ -284,11 +284,21 @@ def _is_better_representative(candidate: SearchResult, current: SearchResult) ->
 # LLM candidate filtering
 # ---------------------------------------------------------------------------
 
+_FILTER_PROMPT_VERSION = "v2"
+
 _FILTER_SYSTEM = (
-    "You are a precise classifier deciding whether a web search result is the official "
-    "website of an individual firm or business, as opposed to a directory, aggregator, "
-    "ranking list, news article, social media page, or other non-firm page. Be strict: "
-    "only mark a result as a firm website when it clearly belongs to one specific firm."
+    "You are a classifier deciding whether each search result is the official website of a "
+    "single firm or business — as opposed to a directory, aggregator, ranking list, news "
+    "article, social-media page, or other non-firm page.\n\n"
+    "Decide based on page type only. Do NOT reject a result based on:\n"
+    "- The firm's size (number of attorneys, employees, partners, offices)\n"
+    "- Whether the firm specializes in exactly the target practice area\n"
+    "- The firm's specific city, as long as it operates in the broad region\n\n"
+    "Those nuances are evaluated downstream from the full website content. Your only job "
+    'is "is this a single firm\'s website, yes or no?"\n\n'
+    "When uncertain about page type, prefer is_firm=true and let downstream scoring filter "
+    "it out. Reject only when clearly a directory, aggregator, news article, social media "
+    "page, or other non-firm content."
 )
 
 
@@ -297,13 +307,15 @@ def _chunk(items: list[SearchResult], size: int) -> list[list[SearchResult]]:
 
 
 def _build_filter_prompt(icp: ICPConfig, batch: list[SearchResult]) -> str:
+    # Note: icp.description is intentionally NOT injected — its size/geo/specialization
+    # details bias the classifier toward over-rejection. Only icp.name passes through, to
+    # supply the vertical (e.g. "Law Boutique" tells the LLM not to keep CPA firms).
     lines = [
-        f"We are sourcing leads for: {icp.name}",
-        f"Target market: {icp.description}",
+        f"We are sourcing leads for firms in this broad domain: {icp.name}",
         "",
         "Classify each numbered search result below. For each, decide whether it is the "
-        "official website of a single firm matching this market (is_firm=true) or not "
-        "(is_firm=false). Return one decision per index.",
+        "official website of a single firm in this broad domain (is_firm=true) or not "
+        "(is_firm=false). Return one decision per index with a brief reason.",
         "",
     ]
     for i, r in enumerate(batch):
@@ -370,7 +382,9 @@ async def filter_candidates(
     async def classify(batch: list[SearchResult]) -> tuple[list[SearchResult], CallStats]:
         batch_h = _batch_hash(batch)
         cached = (
-            await storage.get_cached_filter(icp.name, batch_h) if storage is not None else None
+            await storage.get_cached_filter(icp.name, _FILTER_PROMPT_VERSION, batch_h)
+            if storage is not None
+            else None
         )
         if cached is not None:
             decisions = [FilterDecision(**d) for d in cached]
@@ -388,7 +402,10 @@ async def filter_candidates(
             stats = response.stats
             if storage is not None:
                 await storage.cache_filter(
-                    icp.name, batch_h, [d.model_dump() for d in decisions]
+                    icp.name,
+                    _FILTER_PROMPT_VERSION,
+                    batch_h,
+                    [d.model_dump() for d in decisions],
                 )
 
         if storage is not None and run_id is not None:

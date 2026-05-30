@@ -64,13 +64,20 @@ CREATE INDEX IF NOT EXISTS idx_filter_decisions_run ON filter_decisions(run_id);
 CREATE INDEX IF NOT EXISTS idx_filter_decisions_url ON filter_decisions(url);
 
 CREATE TABLE IF NOT EXISTS filter_cache (
-    icp_name   TEXT NOT NULL,
-    batch_hash TEXT NOT NULL,
-    decisions  TEXT NOT NULL,
-    cached_at  TEXT NOT NULL,
-    PRIMARY KEY (icp_name, batch_hash)
+    icp_name       TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    batch_hash     TEXT NOT NULL,
+    decisions      TEXT NOT NULL,
+    cached_at      TEXT NOT NULL,
+    PRIMARY KEY (icp_name, prompt_version, batch_hash)
 );
 """
+
+# Schema version 1 introduced `prompt_version` into the `filter_cache` primary key.
+# Older DBs have the 2-column key; this migration drops the stale table so the
+# CREATE IF NOT EXISTS above can re-materialize it with the new shape. Cache rebuilds
+# naturally on the next discovery run.
+_CURRENT_SCHEMA_VERSION = 1
 
 
 def _now() -> str:
@@ -104,9 +111,22 @@ class Storage:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = await aiosqlite.connect(self._db_path)
         self._conn.row_factory = aiosqlite.Row
+        await self._migrate()
         await self._conn.executescript(_SCHEMA)
         await self._conn.commit()
         return self
+
+    async def _migrate(self) -> None:
+        """Idempotent pre-schema migrations tracked via PRAGMA user_version."""
+        async with self._conn.execute("PRAGMA user_version") as cursor:
+            row = await cursor.fetchone()
+        version = row[0] if row else 0
+        if version < 1:
+            # v1: filter_cache key now includes prompt_version. Drop the old table so
+            # the post-migration `CREATE IF NOT EXISTS` materializes the new shape.
+            await self._conn.execute("DROP TABLE IF EXISTS filter_cache")
+            await self._conn.execute(f"PRAGMA user_version = {_CURRENT_SCHEMA_VERSION}")
+            await self._conn.commit()
 
     async def __aexit__(self, *args: object) -> None:
         if self._conn:
@@ -272,24 +292,30 @@ class Storage:
     # -- Filter decisions / cache --------------------------------------------
 
     async def get_cached_filter(
-        self, icp_name: str, batch_hash: str
+        self, icp_name: str, prompt_version: str, batch_hash: str
     ) -> list[dict[str, Any]] | None:
-        """Return cached LLM decisions for a (icp_name, batch_hash) key; None on miss."""
+        """Return cached LLM decisions for a (icp_name, prompt_version, batch_hash) key."""
         async with self._conn.execute(
-            "SELECT decisions FROM filter_cache WHERE icp_name = ? AND batch_hash = ?",
-            (icp_name, batch_hash),
+            "SELECT decisions FROM filter_cache "
+            "WHERE icp_name = ? AND prompt_version = ? AND batch_hash = ?",
+            (icp_name, prompt_version, batch_hash),
         ) as cursor:
             row = await cursor.fetchone()
         return json.loads(row["decisions"]) if row else None
 
     async def cache_filter(
-        self, icp_name: str, batch_hash: str, decisions: list[dict[str, Any]]
+        self,
+        icp_name: str,
+        prompt_version: str,
+        batch_hash: str,
+        decisions: list[dict[str, Any]],
     ) -> None:
-        """Insert or replace cached filter decisions for a (icp_name, batch_hash) key."""
+        """Insert or replace cached filter decisions for the 3-tuple cache key."""
         await self._conn.execute(
             "INSERT OR REPLACE INTO filter_cache "
-            "(icp_name, batch_hash, decisions, cached_at) VALUES (?, ?, ?, ?)",
-            (icp_name, batch_hash, json.dumps(decisions), _now()),
+            "(icp_name, prompt_version, batch_hash, decisions, cached_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (icp_name, prompt_version, batch_hash, json.dumps(decisions), _now()),
         )
         await self._conn.commit()
 

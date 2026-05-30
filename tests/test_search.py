@@ -553,6 +553,26 @@ class TestFilterPersistenceAndCache:
 
         assert len(llm.calls) == 2  # different batch_hash -> cache miss
 
+    async def test_prompt_version_change_misses_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from lead_agent import search as search_mod
+        from lead_agent.storage import Storage
+
+        icp = make_icp()
+        results = [_r("https://a.com", title="A")]
+        llm = FakeLLM(_decisions_with_reasons)
+
+        async with Storage(tmp_path / "t.db") as db:
+            monkeypatch.setattr(search_mod, "_FILTER_PROMPT_VERSION", "v1")
+            await filter_candidates(results, icp, llm, storage=db)
+            assert len(llm.calls) == 1  # first call: cache miss
+            # Same batch, same ICP — but prompt version changed
+            monkeypatch.setattr(search_mod, "_FILTER_PROMPT_VERSION", "v2")
+            await filter_candidates(results, icp, llm, storage=db)
+
+        assert len(llm.calls) == 2  # cache miss on version change
+
     async def test_no_run_id_skips_logging_but_caching_still_works(
         self, tmp_path: Path
     ) -> None:
