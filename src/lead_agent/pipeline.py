@@ -212,7 +212,12 @@ async def run_pipeline(
     run_id = await storage.create_run(icp.name)
     try:
         discovery = await discover_candidates(
-            icp, client, provider, storage=storage, augment_queries=augment_queries
+            icp,
+            client,
+            provider,
+            storage=storage,
+            run_id=run_id,
+            augment_queries=augment_queries,
         )
         stats.add_calls(discovery.llm_calls)
         urls = discovery.urls[:limit] if limit is not None else discovery.urls

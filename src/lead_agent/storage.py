@@ -10,7 +10,6 @@ from typing import Any
 
 import aiosqlite
 
-
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     run_id       TEXT PRIMARY KEY,
@@ -47,6 +46,29 @@ CREATE TABLE IF NOT EXISTS search_cache (
     query     TEXT PRIMARY KEY,
     results   TEXT NOT NULL,
     cached_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS filter_decisions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id     TEXT NOT NULL REFERENCES runs(run_id),
+    icp_name   TEXT NOT NULL,
+    url        TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    snippet    TEXT NOT NULL,
+    is_firm    INTEGER NOT NULL,
+    reason     TEXT NOT NULL DEFAULT '',
+    decided_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_filter_decisions_run ON filter_decisions(run_id);
+CREATE INDEX IF NOT EXISTS idx_filter_decisions_url ON filter_decisions(url);
+
+CREATE TABLE IF NOT EXISTS filter_cache (
+    icp_name   TEXT NOT NULL,
+    batch_hash TEXT NOT NULL,
+    decisions  TEXT NOT NULL,
+    cached_at  TEXT NOT NULL,
+    PRIMARY KEY (icp_name, batch_hash)
 );
 """
 
@@ -246,3 +268,57 @@ class Storage:
         if age.total_seconds() > ttl_hours * 3600:
             return None
         return json.loads(row["results"])
+
+    # -- Filter decisions / cache --------------------------------------------
+
+    async def get_cached_filter(
+        self, icp_name: str, batch_hash: str
+    ) -> list[dict[str, Any]] | None:
+        """Return cached LLM decisions for a (icp_name, batch_hash) key; None on miss."""
+        async with self._conn.execute(
+            "SELECT decisions FROM filter_cache WHERE icp_name = ? AND batch_hash = ?",
+            (icp_name, batch_hash),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return json.loads(row["decisions"]) if row else None
+
+    async def cache_filter(
+        self, icp_name: str, batch_hash: str, decisions: list[dict[str, Any]]
+    ) -> None:
+        """Insert or replace cached filter decisions for a (icp_name, batch_hash) key."""
+        await self._conn.execute(
+            "INSERT OR REPLACE INTO filter_cache "
+            "(icp_name, batch_hash, decisions, cached_at) VALUES (?, ?, ?, ?)",
+            (icp_name, batch_hash, json.dumps(decisions), _now()),
+        )
+        await self._conn.commit()
+
+    async def log_filter_decisions(
+        self, run_id: str, icp_name: str, decisions: list[dict[str, Any]]
+    ) -> None:
+        """Bulk-append filter decisions for audit.
+
+        Each dict needs url/title/snippet/is_firm/reason.
+        """
+        if not decisions:
+            return
+        now = _now()
+        await self._conn.executemany(
+            "INSERT INTO filter_decisions "
+            "(run_id, icp_name, url, title, snippet, is_firm, reason, decided_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    run_id,
+                    icp_name,
+                    d["url"],
+                    d["title"],
+                    d["snippet"],
+                    int(bool(d["is_firm"])),
+                    d["reason"],
+                    now,
+                )
+                for d in decisions
+            ],
+        )
+        await self._conn.commit()

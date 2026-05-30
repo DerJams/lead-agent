@@ -9,6 +9,8 @@ to avoid re-hitting the search API on re-runs.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 from urllib.parse import urlsplit, urlunsplit
@@ -16,9 +18,11 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .llm import CallStats  # runtime: synthesised for cache-hit stats
+
 if TYPE_CHECKING:
     from .config import ICPConfig
-    from .llm import CallStats, LLMClient
+    from .llm import LLMClient
     from .storage import Storage
 
 
@@ -308,25 +312,93 @@ def _build_filter_prompt(icp: ICPConfig, batch: list[SearchResult]) -> str:
     return "\n".join(lines)
 
 
+def _batch_hash(batch: list[SearchResult]) -> str:
+    """Stable SHA-256 over (url, title, snippet[:300]) tuples in batch order.
+
+    Matches the 300-char snippet truncation used in `_build_filter_prompt`, so the cache
+    key reflects exactly what the LLM saw. Order-sensitive because decision indices are
+    positional within the batch.
+    """
+    payload = json.dumps(
+        [(r.url, r.title, r.snippet[:300]) for r in batch],
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _decisions_for_audit(
+    batch: list[SearchResult], decisions: list[FilterDecision]
+) -> list[dict[str, object]]:
+    """Pair every batch item with its decision; mark missing ones explicitly."""
+    by_index = {d.index: d for d in decisions}
+    rows: list[dict[str, object]] = []
+    for i, r in enumerate(batch):
+        d = by_index.get(i)
+        rows.append(
+            {
+                "url": r.url,
+                "title": r.title,
+                "snippet": r.snippet[:300],
+                "is_firm": bool(d.is_firm) if d is not None else False,
+                "reason": d.reason if d is not None else "[no decision returned by LLM]",
+            }
+        )
+    return rows
+
+
 async def filter_candidates(
     results: list[SearchResult],
     icp: ICPConfig,
     client: LLMClient,
     *,
     batch_size: int = 10,
+    storage: Storage | None = None,
+    run_id: str | None = None,
 ) -> tuple[list[SearchResult], list[CallStats]]:
-    """Keep results the LLM classifies as firm websites. Batched; missing decisions drop."""
+    """Keep results the LLM classifies as firm websites. Batched; missing decisions drop.
+
+    Decisions (kept and rejected, with their `reason` strings) are appended to the
+    `filter_decisions` audit table when `storage` and `run_id` are both supplied, and
+    cached by (icp.name, batch_hash) when `storage` is supplied. On a cache hit the LLM
+    is not called; the returned `CallStats` has model='cache' and zero tokens/cost.
+    """
     if not results:
         return [], []
 
     batches = _chunk(results, batch_size)
 
     async def classify(batch: list[SearchResult]) -> tuple[list[SearchResult], CallStats]:
-        prompt = _build_filter_prompt(icp, batch)
-        response = await client.extract(prompt, FilterBatchResult, system=_FILTER_SYSTEM)
-        keep_idx = {d.index for d in response.content.decisions if d.is_firm}
+        batch_h = _batch_hash(batch)
+        cached = (
+            await storage.get_cached_filter(icp.name, batch_h) if storage is not None else None
+        )
+        if cached is not None:
+            decisions = [FilterDecision(**d) for d in cached]
+            stats = CallStats(
+                model="cache",
+                prompt_tokens=0,
+                completion_tokens=0,
+                cost_usd=0.0,
+                duration_ms=0,
+            )
+        else:
+            prompt = _build_filter_prompt(icp, batch)
+            response = await client.extract(prompt, FilterBatchResult, system=_FILTER_SYSTEM)
+            decisions = response.content.decisions
+            stats = response.stats
+            if storage is not None:
+                await storage.cache_filter(
+                    icp.name, batch_h, [d.model_dump() for d in decisions]
+                )
+
+        if storage is not None and run_id is not None:
+            await storage.log_filter_decisions(
+                run_id, icp.name, _decisions_for_audit(batch, decisions)
+            )
+
+        keep_idx = {d.index for d in decisions if d.is_firm}
         kept = [batch[i] for i in sorted(keep_idx) if 0 <= i < len(batch)]
-        return kept, response.stats
+        return kept, stats
 
     outcomes = await asyncio.gather(*(classify(b) for b in batches))
     kept: list[SearchResult] = []
@@ -368,11 +440,17 @@ async def discover_candidates(
     provider: SearchProvider,
     *,
     storage: Storage | None = None,
+    run_id: str | None = None,
     augment_queries: bool = True,
     max_results_per_query: int = 8,
     search_concurrency: int = 5,
 ) -> DiscoveryResult:
-    """Full discovery: generate queries, search, prefilter, dedupe, LLM-filter to firm URLs."""
+    """Full discovery: generate queries, search, prefilter, dedupe, LLM-filter to firm URLs.
+
+    When `storage` is supplied the LLM filter consults `filter_cache` and writes new
+    decisions to it; when `run_id` is also supplied, every decision (kept and rejected)
+    is appended to `filter_decisions` for audit.
+    """
     queries, qstats = await generate_queries(icp, client, augment=augment_queries)
 
     semaphore = asyncio.Semaphore(search_concurrency)
@@ -386,7 +464,9 @@ async def discover_candidates(
 
     prefiltered = prefilter(all_results, icp)
     deduped = dedupe_by_domain(prefiltered)
-    kept, fstats = await filter_candidates(deduped, icp, client)
+    kept, fstats = await filter_candidates(
+        deduped, icp, client, storage=storage, run_id=run_id
+    )
 
     llm_calls: list[CallStats] = ([qstats] if qstats else []) + fstats
     return DiscoveryResult(

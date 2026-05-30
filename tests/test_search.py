@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -433,3 +434,145 @@ class TestDiscoverCandidates:
             icp, FakeLLM(_keep_all_firms), provider, augment_queries=False
         )
         assert result.urls == ["https://smithlaw.com/"]
+
+
+# ---------------------------------------------------------------------------
+# filter_candidates: persistence + caching
+# ---------------------------------------------------------------------------
+
+def _decisions_with_reasons(_: str, __: type[BaseModel]) -> FilterBatchResult:
+    """Responder that returns two decisions with non-empty reasons (keep + reject)."""
+    return FilterBatchResult(
+        decisions=[
+            FilterDecision(index=0, is_firm=True, reason="clear firm site"),
+            FilterDecision(index=1, is_firm=False, reason="directory aggregator page"),
+        ]
+    )
+
+
+def _read_filter_decisions(db_path: Path, run_id: str) -> list[dict[str, Any]]:
+    """Plain sqlite3 read after Storage has been closed — avoids touching internals."""
+    con = sqlite3.connect(str(db_path))
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT url, is_firm, reason FROM filter_decisions "
+            "WHERE run_id = ? ORDER BY url",
+            (run_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
+class TestFilterPersistenceAndCache:
+    async def test_persists_kept_and_rejected_with_reasons(self, tmp_path: Path) -> None:
+        from lead_agent.storage import Storage
+
+        icp = make_icp()
+        results = [
+            _r("https://a.com", title="Firm A"),
+            _r("https://b.com", title="Directory B"),
+        ]
+        db_path = tmp_path / "t.db"
+        async with Storage(db_path) as db:
+            run_id = await db.create_run(icp.name)
+            await filter_candidates(
+                results, icp, FakeLLM(_decisions_with_reasons),
+                storage=db, run_id=run_id,
+            )
+
+        rows = _read_filter_decisions(db_path, run_id)
+        assert rows == [
+            {"url": "https://a.com", "is_firm": 1, "reason": "clear firm site"},
+            {"url": "https://b.com", "is_firm": 0, "reason": "directory aggregator page"},
+        ]
+
+    async def test_missing_decision_audited_as_no_decision(self, tmp_path: Path) -> None:
+        from lead_agent.storage import Storage
+
+        icp = make_icp()
+        results = [_r("https://a.com"), _r("https://b.com")]
+        db_path = tmp_path / "t.db"
+        async with Storage(db_path) as db:
+            run_id = await db.create_run(icp.name)
+            # Responder returns no decision for index 1
+            await filter_candidates(
+                results, icp, FakeLLM(_keep_index_0), storage=db, run_id=run_id,
+            )
+
+        rows = _read_filter_decisions(db_path, run_id)
+        assert rows[0]["reason"] == ""  # index 0 kept, default empty reason
+        assert rows[1]["reason"] == "[no decision returned by LLM]"
+        assert rows[1]["is_firm"] == 0
+
+    async def test_cache_hit_skips_llm_on_second_call(self, tmp_path: Path) -> None:
+        from lead_agent.storage import Storage
+
+        icp = make_icp()
+        results = [_r("https://a.com", title="A"), _r("https://b.com", title="B")]
+        llm = FakeLLM(_decisions_with_reasons)
+
+        async with Storage(tmp_path / "t.db") as db:
+            kept1, _ = await filter_candidates(results, icp, llm, storage=db)
+            assert len(llm.calls) == 1  # cache miss on first call
+            kept2, stats2 = await filter_candidates(results, icp, llm, storage=db)
+
+        assert len(llm.calls) == 1  # cache hit on second; LLM not called again
+        assert [r.url for r in kept2] == [r.url for r in kept1]
+        assert stats2[0].model == "cache"
+        assert stats2[0].prompt_tokens == 0
+
+    async def test_different_icp_name_misses_cache(self, tmp_path: Path) -> None:
+        from lead_agent.storage import Storage
+
+        results = [_r("https://a.com", title="A")]
+        llm = FakeLLM(_decisions_with_reasons)
+        icp_a = make_icp()  # name = "Test ICP"
+        other = copy.deepcopy(_VALID_ICP)
+        other["name"] = "Different ICP Name"
+        icp_b = ICPConfig.model_validate(other)
+
+        async with Storage(tmp_path / "t.db") as db:
+            await filter_candidates(results, icp_a, llm, storage=db)
+            await filter_candidates(results, icp_b, llm, storage=db)
+
+        assert len(llm.calls) == 2  # different icp.name -> different cache key
+
+    async def test_different_batch_contents_miss_cache(self, tmp_path: Path) -> None:
+        from lead_agent.storage import Storage
+
+        icp = make_icp()
+        llm = FakeLLM(_decisions_with_reasons)
+
+        async with Storage(tmp_path / "t.db") as db:
+            await filter_candidates([_r("https://a.com", title="A")], icp, llm, storage=db)
+            await filter_candidates(
+                [_r("https://a.com", title="DIFFERENT TITLE")], icp, llm, storage=db,
+            )
+
+        assert len(llm.calls) == 2  # different batch_hash -> cache miss
+
+    async def test_no_run_id_skips_logging_but_caching_still_works(
+        self, tmp_path: Path
+    ) -> None:
+        from lead_agent.storage import Storage
+
+        icp = make_icp()
+        results = [_r("https://a.com", title="A")]
+        llm = FakeLLM(_decisions_with_reasons)
+        db_path = tmp_path / "t.db"
+
+        async with Storage(db_path) as db:
+            # No run_id supplied
+            await filter_candidates(results, icp, llm, storage=db)
+            # Second call should still hit cache
+            await filter_candidates(results, icp, llm, storage=db)
+
+        assert len(llm.calls) == 1  # caching active
+        con = sqlite3.connect(str(db_path))
+        try:
+            count = con.execute("SELECT COUNT(*) FROM filter_decisions").fetchone()[0]
+        finally:
+            con.close()
+        assert count == 0  # nothing logged without run_id
