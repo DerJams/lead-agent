@@ -10,7 +10,6 @@ from pydantic import ValidationError
 
 from lead_agent.config import ICPConfig, load_icp
 
-
 VALID: dict = {
     "name": "Test ICP",
     "description": "A minimal test ICP.",
@@ -217,7 +216,7 @@ class TestLoadIcp:
         cfg = load_icp(path)
         assert cfg.name == "Small Commercial Real Estate Law Boutique (Dallas/Texas)"
         assert any(f.name == "attorney_count" for f in cfg.extraction_schema)
-        assert any(f.field == "attorney_count" for f in cfg.hard_filters)
+        assert cfg.hard_filters == []  # intentionally empty — see commit 2425c09
         assert len(cfg.soft_signals) == 4
         assert abs(sum(s.weight for s in cfg.soft_signals) - 1.0) <= 0.05
         assert "score" in cfg.output_fields
