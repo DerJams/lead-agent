@@ -9,6 +9,9 @@ search_queries:
     - "commercial real estate law firm {city} Texas"
     - "commercial real estate attorneys boutique {city} TX"
     - "CRE transaction lawyers small firm {city} Texas"
+    - "1031 exchange attorney {city} Texas"
+    - "ground lease attorney {city} Texas"
+    - "construction loan attorney {city} Texas"
   geo_focus:
     - Dallas
     - Fort Worth

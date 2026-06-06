@@ -133,9 +133,21 @@ def get_search_provider() -> SearchProvider:
 # ---------------------------------------------------------------------------
 
 _QUERYGEN_SYSTEM = (
-    "You generate web search queries to discover candidate firm websites for a "
-    "lead-generation pipeline. Return concise, varied queries that a search engine "
-    "handles well. Do not include boolean operators or quotes."
+    "You generate web search queries to discover official websites of individual firms "
+    "or businesses matching a target market, for a lead-generation pipeline.\n\n"
+    "Effective queries pair a geographic anchor (city + state) with vocabulary firms "
+    "actually use on their own websites: specific practice areas, deal types, or "
+    "services they advertise. Avoid:\n"
+    "- Adjectives like 'boutique', 'small', 'owner-operated', 'mid-size' — these "
+    "rarely appear on firms' own pages and don't constrain ranking.\n"
+    "- Words that pull aggregator/directory results: 'directory', 'best', 'top', "
+    "'ranking', 'rated', 'services', 'advice', 'search'.\n"
+    "- Paraphrastic restatements of the same noun phrase (e.g. 'law firm', 'legal "
+    "services', 'law offices', 'attorney services' for the same vertical).\n"
+    "- Boolean operators, quotes, and site: filters — the search backend ignores these.\n\n"
+    "Prefer queries that vary on practice subvertical (specific deal types, "
+    "transaction types, or sub-specialties the target firms list as their services) "
+    "rather than synonym swaps on the same broad term."
 )
 
 
@@ -175,11 +187,18 @@ async def generate_queries(
     if not augment:
         return base, None
 
+    negatives = icp.search_queries.negative_keywords
+    avoid_line = (
+        f"Words to AVOID in queries (these signal noise in this domain): {', '.join(negatives)}\n"
+        if negatives
+        else ""
+    )
     prompt = (
         f"Target market: {icp.name}\n"
         f"Description: {icp.description}\n"
         f"Regions of focus: {', '.join(icp.search_queries.geo_focus)}\n"
-        f"Existing queries:\n" + "\n".join(f"- {q}" for q in base) + "\n\n"
+        + avoid_line
+        + "Existing queries:\n" + "\n".join(f"- {q}" for q in base) + "\n\n"
         f"Propose {extra_count} additional, distinct web search queries that would surface "
         "official websites of firms matching this market. Vary phrasing and angle; avoid "
         "duplicating the existing queries."

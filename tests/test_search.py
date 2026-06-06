@@ -321,6 +321,28 @@ class TestGenerateQueries:
         assert len(llm.calls) == 1
         assert llm.calls[0][1] is GeneratedQueries
 
+    async def test_prompt_includes_negative_keywords_when_present(self) -> None:
+        icp = make_icp(negative_keywords=["directory", "ranking"])
+        llm = FakeLLM(lambda p, m: GeneratedQueries(queries=[]))
+        await generate_queries(icp, llm, augment=True)
+        prompt = llm.calls[0][0]
+        assert "Words to AVOID" in prompt
+        assert "directory" in prompt
+        assert "ranking" in prompt
+
+    async def test_prompt_omits_negative_keywords_line_when_empty(self) -> None:
+        icp = make_icp(negative_keywords=[])
+        llm = FakeLLM(lambda p, m: GeneratedQueries(queries=[]))
+        await generate_queries(icp, llm, augment=True)
+        prompt = llm.calls[0][0]
+        assert "Words to AVOID" not in prompt
+
+    def test_system_prompt_contains_guardrail_keywords(self) -> None:
+        from lead_agent.search import _QUERYGEN_SYSTEM
+
+        assert "directory" in _QUERYGEN_SYSTEM
+        assert "boutique" in _QUERYGEN_SYSTEM
+
 
 # ---------------------------------------------------------------------------
 # filter_candidates
