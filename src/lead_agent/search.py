@@ -201,6 +201,9 @@ _DEFAULT_BLOCKED_DOMAINS: frozenset[str] = frozenset(
         "indeed.com", "mapquest.com", "crunchbase.com", "bloomberg.com", "reuters.com",
         "linkedin.com", "facebook.com", "twitter.com", "x.com", "instagram.com",
         "youtube.com",
+        "primerus.com", "axiomlaw.com", "bcgsearch.com", "lexinter.net",
+        "findarealestateattorney.com", "fortworthchamber.com", "bestlawyers.com",
+        "lawfirmsquare.com", "jurisolutions.com",
     }
 )
 
