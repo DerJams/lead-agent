@@ -38,6 +38,9 @@ class LLMSettings(BaseSettings):
     llm_request_timeout_seconds: float = 60.0
     llm_rate_limit_max_attempts: int = 3
     llm_rate_limit_max_sleep_seconds: float = 60.0
+    # Cap on scraped-text length fed to extraction/scoring prompts. ~32K chars ≈ 8K
+    # tokens; keeps a single request well under Groq's 12K TPM ceiling.
+    llm_input_max_chars: int = 32000
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

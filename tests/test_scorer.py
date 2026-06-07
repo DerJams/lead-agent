@@ -259,6 +259,16 @@ class TestRateSoftSignals:
         assert "sig_a" in prompt and "Rate A 1-10." in prompt
         assert "UNIQUE_TEXT_MARKER" in prompt
 
+    async def test_combined_text_truncated_to_max_chars(self) -> None:
+        icp = make_icp()
+        llm = FakeLLM(ratings_responder({"sig_a": 5, "sig_b": 5}))
+        head = "HEAD_MARKER" + "A" * 90
+        tail = "B" * 200 + "TAIL_MARKER"
+        await rate_soft_signals(head + tail, icp, llm, max_chars=len(head))
+        prompt = llm.calls[0][0]
+        assert "HEAD_MARKER" in prompt
+        assert "TAIL_MARKER" not in prompt
+
 
 # ---------------------------------------------------------------------------
 # score_firm

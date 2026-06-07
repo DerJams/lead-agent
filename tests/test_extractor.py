@@ -195,6 +195,17 @@ class TestExtractProfile:
         assert "model exhausted retries" in result.error
         assert result.stats is None
 
+    async def test_combined_text_truncated_to_max_chars(self) -> None:
+        icp = make_icp()
+        llm = FakeLLM(lambda p, m: m())
+        head = "HEAD_MARKER" + "A" * 90
+        tail = "B" * 200 + "TAIL_MARKER"
+        long_text = head + tail
+        await extract_profile(long_text, icp, llm, max_chars=len(head))
+        prompt = llm.calls[0][0]
+        assert "HEAD_MARKER" in prompt
+        assert "TAIL_MARKER" not in prompt
+
 
 class TestExtractionResult:
     def test_ok_true_when_profile_present_no_error(self) -> None:

@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from .llm import LLMSettings
+
 if TYPE_CHECKING:
     from .config import HardFilter, ICPConfig, SoftSignal
     from .llm import CallStats, LLMClient
@@ -140,7 +142,7 @@ def _clamp_rating(rating: int) -> int:
     return max(1, min(10, int(rating)))
 
 
-def _build_scoring_prompt(icp: ICPConfig, combined_text: str) -> str:
+def _build_scoring_prompt(icp: ICPConfig, combined_text: str, *, max_chars: int) -> str:
     lines = [
         "Rate the firm below against each criterion. Return an integer 1-10 for every "
         "criterion, keyed by its exact name.",
@@ -149,15 +151,21 @@ def _build_scoring_prompt(icp: ICPConfig, combined_text: str) -> str:
     ]
     for signal in icp.soft_signals:
         lines.append(f"- name: {signal.name}\n  instruction: {signal.prompt.strip()}")
-    lines.extend(["", "Firm website text:", combined_text])
+    lines.extend(["", "Firm website text:", combined_text[:max_chars]])
     return "\n".join(lines)
 
 
 async def rate_soft_signals(
-    combined_text: str, icp: ICPConfig, client: LLMClient
+    combined_text: str,
+    icp: ICPConfig,
+    client: LLMClient,
+    *,
+    max_chars: int | None = None,
 ) -> tuple[dict[str, int], list[CallStats]]:
     """One batched LLM call rating all soft signals. Missing ratings default to 1; clamped 1-10."""
-    prompt = _build_scoring_prompt(icp, combined_text)
+    if max_chars is None:
+        max_chars = LLMSettings().llm_input_max_chars
+    prompt = _build_scoring_prompt(icp, combined_text, max_chars=max_chars)
     response = await client.extract(prompt, SignalRatings, system=_SCORING_SYSTEM)
     returned = {r.name: _clamp_rating(r.rating) for r in response.content.ratings}
     ratings = {signal.name: returned.get(signal.name, 1) for signal in icp.soft_signals}

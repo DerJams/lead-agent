@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, create_model
 
+from .llm import LLMSettings
+
 if TYPE_CHECKING:
     from .config import ExtractionField, ICPConfig
     from .llm import CallStats, LLMClient
@@ -53,14 +55,16 @@ def build_extraction_model(schema: list[ExtractionField]) -> type[BaseModel]:
     return create_model("ExtractedProfile", **fields)
 
 
-def _build_extract_prompt(icp: ICPConfig, combined_text: str, source_url: str | None) -> str:
+def _build_extract_prompt(
+    icp: ICPConfig, combined_text: str, source_url: str | None, *, max_chars: int
+) -> str:
     lines = [f"Target market: {icp.name}"]
     if source_url:
         lines.append(f"Firm website: {source_url}")
     required = [f.name for f in icp.extraction_schema if f.required]
     if required:
         lines.append("High-priority fields to find if present: " + ", ".join(required))
-    lines.extend(["", "Website text:", combined_text])
+    lines.extend(["", "Website text:", combined_text[:max_chars]])
     return "\n".join(lines)
 
 
@@ -70,10 +74,13 @@ async def extract_profile(
     client: LLMClient,
     *,
     source_url: str | None = None,
+    max_chars: int | None = None,
 ) -> ExtractionResult:
     """Extract a firm profile from scraped text per the ICP schema. Isolates per-firm failures."""
+    if max_chars is None:
+        max_chars = LLMSettings().llm_input_max_chars
     model = build_extraction_model(icp.extraction_schema)
-    prompt = _build_extract_prompt(icp, combined_text, source_url)
+    prompt = _build_extract_prompt(icp, combined_text, source_url, max_chars=max_chars)
     try:
         response = await client.extract(prompt, model, system=_EXTRACT_SYSTEM)
     except Exception as exc:
