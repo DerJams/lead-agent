@@ -197,6 +197,11 @@ class TestPrefilter:
         out = prefilter([_r("https://www.primerus.com/houston")], icp)
         assert out == []
 
+    def test_blocks_1031_intermediary_domain(self) -> None:
+        icp = make_icp()
+        out = prefilter([_r("https://www.ipx1031.com/houston")], icp)
+        assert out == []
+
     def test_drops_negative_keyword_in_title(self) -> None:
         icp = make_icp(negative_keywords=["ranking"])
         out = prefilter([_r("https://goodfirm.com", title="Top 10 Ranking of Firms")], icp)

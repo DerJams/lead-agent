@@ -223,6 +223,10 @@ _DEFAULT_BLOCKED_DOMAINS: frozenset[str] = frozenset(
         "primerus.com", "axiomlaw.com", "bcgsearch.com", "lexinter.net",
         "findarealestateattorney.com", "fortworthchamber.com", "bestlawyers.com",
         "lawfirmsquare.com", "jurisolutions.com",
+        "lawinfo.com", "contractscounsel.com", "texaslandcan.org",
+        "ipx1031.com", "apiexchange.com", "legal1031.com", "firstexchange.com",
+        "rattikinexchange.com", "excel1031exchange.org",
+        "ctic.com", "ltic.com",
     }
 )
 
