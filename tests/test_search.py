@@ -383,6 +383,56 @@ class TestFilterCandidates:
         kept, _ = await filter_candidates(results, icp, FakeLLM(_keep_index_0), batch_size=10)
         assert [r.url for r in kept] == ["https://a.com"]
 
+    async def test_concurrency_caps_in_flight_batches(self) -> None:
+        import asyncio
+
+        icp = make_icp()
+        # Five batches' worth of inputs (one result per batch with batch_size=1).
+        results = [_r(f"https://firm{i}.com") for i in range(5)]
+
+        active = 0
+        max_active = 0
+
+        class ConcurrencyTrackingLLM:
+            async def extract(
+                self,
+                prompt: str,
+                response_model: type[BaseModel],
+                system: str = "",
+                temperature: float = 0.0,
+                max_retries: int = 2,
+            ) -> LLMResponse[BaseModel]:
+                nonlocal active, max_active
+                active += 1
+                max_active = max(max_active, active)
+                await asyncio.sleep(0.01)  # force interleaving opportunity
+                active -= 1
+                stats = CallStats(
+                    model="fake",
+                    prompt_tokens=1,
+                    completion_tokens=1,
+                    cost_usd=0.0,
+                    duration_ms=1,
+                )
+                return LLMResponse(
+                    content=FilterBatchResult(
+                        decisions=[FilterDecision(index=0, is_firm=True)]
+                    ),
+                    stats=stats,
+                )
+
+        await filter_candidates(
+            results, icp, ConcurrencyTrackingLLM(), batch_size=1, concurrency=1
+        )
+        assert max_active == 1, f"expected serial execution, observed peak {max_active}"
+
+        active = 0
+        max_active = 0
+        await filter_candidates(
+            results, icp, ConcurrencyTrackingLLM(), batch_size=1, concurrency=3
+        )
+        assert max_active <= 3, f"expected at most 3 concurrent, observed peak {max_active}"
+
     async def test_invalid_index_ignored(self) -> None:
         icp = make_icp()
         results = [_r("https://a.com")]

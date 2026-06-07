@@ -36,6 +36,7 @@ class SearchSettings(BaseSettings):
     serper_api_key: str = ""
     max_results_per_query: int = 8
     search_concurrency: int = 5
+    filter_batch_concurrency: int = 3
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -392,6 +393,7 @@ async def filter_candidates(
     batch_size: int = 10,
     storage: Storage | None = None,
     run_id: str | None = None,
+    concurrency: int = 3,
 ) -> tuple[list[SearchResult], list[CallStats]]:
     """Keep results the LLM classifies as firm websites. Batched; missing decisions drop.
 
@@ -399,49 +401,55 @@ async def filter_candidates(
     `filter_decisions` audit table when `storage` and `run_id` are both supplied, and
     cached by (icp.name, batch_hash) when `storage` is supplied. On a cache hit the LLM
     is not called; the returned `CallStats` has model='cache' and zero tokens/cost.
+
+    `concurrency` caps how many batches the LLM filter classifies in parallel; a low
+    cap (default 3) keeps token bursts under the provider's per-minute window so the
+    rate-limit retry doesn't have to fight a self-inflicted spike.
     """
     if not results:
         return [], []
 
     batches = _chunk(results, batch_size)
+    semaphore = asyncio.Semaphore(max(1, concurrency))
 
     async def classify(batch: list[SearchResult]) -> tuple[list[SearchResult], CallStats]:
-        batch_h = _batch_hash(batch)
-        cached = (
-            await storage.get_cached_filter(icp.name, _FILTER_PROMPT_VERSION, batch_h)
-            if storage is not None
-            else None
-        )
-        if cached is not None:
-            decisions = [FilterDecision(**d) for d in cached]
-            stats = CallStats(
-                model="cache",
-                prompt_tokens=0,
-                completion_tokens=0,
-                cost_usd=0.0,
-                duration_ms=0,
+        async with semaphore:
+            batch_h = _batch_hash(batch)
+            cached = (
+                await storage.get_cached_filter(icp.name, _FILTER_PROMPT_VERSION, batch_h)
+                if storage is not None
+                else None
             )
-        else:
-            prompt = _build_filter_prompt(icp, batch)
-            response = await client.extract(prompt, FilterBatchResult, system=_FILTER_SYSTEM)
-            decisions = response.content.decisions
-            stats = response.stats
-            if storage is not None:
-                await storage.cache_filter(
-                    icp.name,
-                    _FILTER_PROMPT_VERSION,
-                    batch_h,
-                    [d.model_dump() for d in decisions],
+            if cached is not None:
+                decisions = [FilterDecision(**d) for d in cached]
+                stats = CallStats(
+                    model="cache",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    cost_usd=0.0,
+                    duration_ms=0,
+                )
+            else:
+                prompt = _build_filter_prompt(icp, batch)
+                response = await client.extract(prompt, FilterBatchResult, system=_FILTER_SYSTEM)
+                decisions = response.content.decisions
+                stats = response.stats
+                if storage is not None:
+                    await storage.cache_filter(
+                        icp.name,
+                        _FILTER_PROMPT_VERSION,
+                        batch_h,
+                        [d.model_dump() for d in decisions],
+                    )
+
+            if storage is not None and run_id is not None:
+                await storage.log_filter_decisions(
+                    run_id, icp.name, _decisions_for_audit(batch, decisions)
                 )
 
-        if storage is not None and run_id is not None:
-            await storage.log_filter_decisions(
-                run_id, icp.name, _decisions_for_audit(batch, decisions)
-            )
-
-        keep_idx = {d.index for d in decisions if d.is_firm}
-        kept = [batch[i] for i in sorted(keep_idx) if 0 <= i < len(batch)]
-        return kept, stats
+            keep_idx = {d.index for d in decisions if d.is_firm}
+            kept = [batch[i] for i in sorted(keep_idx) if 0 <= i < len(batch)]
+            return kept, stats
 
     outcomes = await asyncio.gather(*(classify(b) for b in batches))
     kept: list[SearchResult] = []
@@ -487,6 +495,7 @@ async def discover_candidates(
     augment_queries: bool = True,
     max_results_per_query: int = 8,
     search_concurrency: int = 5,
+    filter_batch_concurrency: int | None = None,
 ) -> DiscoveryResult:
     """Full discovery: generate queries, search, prefilter, dedupe, LLM-filter to firm URLs.
 
@@ -507,8 +516,15 @@ async def discover_candidates(
 
     prefiltered = prefilter(all_results, icp)
     deduped = dedupe_by_domain(prefiltered)
+    if filter_batch_concurrency is None:
+        filter_batch_concurrency = SearchSettings().filter_batch_concurrency
     kept, fstats = await filter_candidates(
-        deduped, icp, client, storage=storage, run_id=run_id
+        deduped,
+        icp,
+        client,
+        storage=storage,
+        run_id=run_id,
+        concurrency=filter_batch_concurrency,
     )
 
     llm_calls: list[CallStats] = ([qstats] if qstats else []) + fstats
