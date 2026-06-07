@@ -39,7 +39,12 @@ extraction_schema:
     required: true
   - name: attorney_count
     type: integer
-    description: Total number of attorneys including partners and associates
+    description: >
+      Total number of attorneys (including partners and associates) at the firm.
+      If the text states a count explicitly, use it. Otherwise, count the
+      distinct named attorneys/lawyers listed in team or attorney bios — this
+      counts as "stated in the text" and is not guessing. Return null only when
+      no attorney names or count are present anywhere in the text.
     required: true
   - name: partners
     type: list
