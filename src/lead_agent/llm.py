@@ -30,11 +30,13 @@ _DEFAULT_RETRY_AFTER_SECONDS = 10.0
 
 
 class LLMSettings(BaseSettings):
-    llm_provider: Literal["ollama", "groq"] = "ollama"
+    llm_provider: Literal["ollama", "groq", "cerebras"] = "ollama"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+    cerebras_api_key: str = ""
+    cerebras_model: str = "gpt-oss-120b"
     llm_request_timeout_seconds: float = 60.0
     llm_rate_limit_max_attempts: int = 3
     llm_rate_limit_max_sleep_seconds: float = 60.0
@@ -303,9 +305,13 @@ def get_client() -> LLMClient:
     elif settings.llm_provider == "groq":
         model = f"groq/{settings.groq_model}"
         extra = {}
+    elif settings.llm_provider == "cerebras":
+        model = f"cerebras/{settings.cerebras_model}"
+        extra = {}
     else:
         raise ValueError(
-            f"Unknown LLM_PROVIDER {settings.llm_provider!r}. Expected 'ollama' or 'groq'."
+            f"Unknown LLM_PROVIDER {settings.llm_provider!r}. "
+            "Expected 'ollama', 'groq', or 'cerebras'."
         )
     return LLMClient(
         model=model,
