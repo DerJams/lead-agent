@@ -291,6 +291,18 @@ class LLMClient:
         )
 
 
+async def _cerebras_acompletion(**kwargs: Any) -> Any:
+    """Force OpenAI client max_retries=0 so our _invoke owns rate-limit backoff.
+
+    OpenAI's client retries 429s internally with sleeps that can outrun our
+    per-request timeout on Cerebras's 5 RPM free tier. Instructor strips
+    `max_retries` for its own use, so injecting it here (after Instructor)
+    is the only place the value survives to LiteLLM's `inference_params.pop`.
+    """
+    kwargs.setdefault("max_retries", 0)
+    return await litellm.acompletion(**kwargs)
+
+
 def get_client() -> LLMClient:
     """Read env/settings and return a configured LLMClient. Call once at pipeline startup."""
     from pydantic import ValidationError as PydanticValidationError
@@ -299,6 +311,7 @@ def get_client() -> LLMClient:
         settings = LLMSettings()
     except PydanticValidationError as e:
         raise ValueError(f"Invalid LLM_PROVIDER setting:\n{e}") from e
+    acompletion_override: Callable[..., Awaitable[Any]] | None = None
     if settings.llm_provider == "ollama":
         model = f"ollama/{settings.ollama_model}"
         extra: dict[str, str] = {"api_base": settings.ollama_base_url}
@@ -308,6 +321,7 @@ def get_client() -> LLMClient:
     elif settings.llm_provider == "cerebras":
         model = f"cerebras/{settings.cerebras_model}"
         extra = {}
+        acompletion_override = _cerebras_acompletion
     else:
         raise ValueError(
             f"Unknown LLM_PROVIDER {settings.llm_provider!r}. "
@@ -317,6 +331,7 @@ def get_client() -> LLMClient:
         model=model,
         extra_kwargs=extra,
         provider=settings.llm_provider,
+        _acompletion=acompletion_override,
         request_timeout=settings.llm_request_timeout_seconds,
         max_attempts=settings.llm_rate_limit_max_attempts,
         max_sleep=settings.llm_rate_limit_max_sleep_seconds,
