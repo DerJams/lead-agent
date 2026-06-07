@@ -131,6 +131,39 @@ class TestSelectRelevantLinks:
         html = '<a href="/blog/post-1">Some blog post</a>'
         assert select_relevant_links(html, "https://smithlaw.com/", max_pages=5) == []
 
+    def test_press_release_does_not_claim_practice_slot(self) -> None:
+        # Press release with "practices" in the slug appears BEFORE the real
+        # practice page; without the noise filter it would steal the slot.
+        html = """
+        <a href="/firm-practices-honored-in-2026-chambers-and-partners-awards/">Honored</a>
+        <a href="/practice-areas">Practice Areas</a>
+        """
+        out = select_relevant_links(html, "https://smithlaw.com/", max_pages=5)
+        assert out == [("https://smithlaw.com/practice-areas", "practice")]
+
+    def test_news_segment_excludes_link(self) -> None:
+        # "news" as a path segment is excluded even when slug matches a page type.
+        html = '<a href="/news/our-attorneys-quoted">Our Attorneys Quoted</a>'
+        assert select_relevant_links(html, "https://smithlaw.com/", max_pages=5) == []
+
+    def test_segment_substring_not_treated_as_segment(self) -> None:
+        # "firm-news-coverage" is a single segment, not equal to "news",
+        # so the noise filter must NOT drop it.
+        html = '<a href="/firm-news-coverage/our-team">Our Team</a>'
+        out = select_relevant_links(html, "https://smithlaw.com/", max_pages=5)
+        assert out == [("https://smithlaw.com/firm-news-coverage/our-team", "team")]
+
+    def test_award_token_in_slug_excludes_link(self) -> None:
+        # "awards" appearing as a hyphenated word inside a segment triggers noise.
+        html = '<a href="/about-our-awards/practice">Awards</a>'
+        assert select_relevant_links(html, "https://smithlaw.com/", max_pages=5) == []
+
+    def test_clean_practice_page_still_matches(self) -> None:
+        # Sanity: filter must not break the common clean case.
+        html = '<a href="/practice-areas/">Practice Areas</a>'
+        out = select_relevant_links(html, "https://smithlaw.com/", max_pages=5)
+        assert out == [("https://smithlaw.com/practice-areas/", "practice")]
+
 
 # ---------------------------------------------------------------------------
 # extract_text

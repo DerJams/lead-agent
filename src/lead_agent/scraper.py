@@ -105,6 +105,32 @@ _STRIP_TAGS: tuple[str, ...] = (
 _MAX_CHARS_PER_PAGE = 6000
 _MAX_TOTAL_CHARS = 24000
 
+# News/press/blog paths that should never be picked as a structural page,
+# even when their URL or anchor text contains a page-type keyword like
+# "practice" or "attorneys". Matched as exact path segments (between slashes),
+# not substrings, so a slug like "firm-news-coverage" is not affected.
+_NOISE_PATH_SEGMENTS: frozenset[str] = frozenset({
+    "news", "blog", "press", "press-release", "press-releases",
+    "article", "articles", "post", "posts", "events", "insights",
+})
+
+# Hyphen-delimited words inside a path segment that mark press/awards copy
+# (e.g. "firm-practices-honored-in-2026-chambers-and-partners-awards").
+_NOISE_SLUG_TOKENS: frozenset[str] = frozenset({
+    "honored", "award", "awards", "chambers",
+})
+
+
+def _looks_like_noise(path: str) -> bool:
+    """True if the URL path looks like a press release / news / blog post."""
+    segments = [s for s in path.lower().split("/") if s]
+    if any(s in _NOISE_PATH_SEGMENTS for s in segments):
+        return True
+    for seg in segments:
+        if any(word in _NOISE_SLUG_TOKENS for word in seg.split("-")):
+            return True
+    return False
+
 
 def _match_page_type(haystack: str) -> str | None:
     for page_type in _PAGE_PRIORITY:
@@ -140,6 +166,8 @@ def select_relevant_links(
             continue
         norm = normalize_url(resolved)
         if norm == home_norm:
+            continue
+        if _looks_like_noise(parts.path):
             continue
         haystack = f"{parts.path.lower()} {anchor.get_text(' ', strip=True).lower()}"
         page_type = _match_page_type(haystack)
