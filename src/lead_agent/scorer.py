@@ -142,7 +142,43 @@ def _clamp_rating(rating: int) -> int:
     return max(1, min(10, int(rating)))
 
 
-def _build_scoring_prompt(icp: ICPConfig, combined_text: str, *, max_chars: int) -> str:
+def _render_profile_facts(profile: dict[str, Any] | None) -> str:
+    """Render the populated profile fields as a compact 'Known facts' block.
+
+    Skips None, empty strings, and empty lists so a missing extraction simply
+    omits the line rather than reading as 'unknown'. Soft signals can quote
+    these values directly instead of re-inferring them from the raw text.
+    """
+    if not profile:
+        return ""
+    lines: list[str] = []
+    for key, value in profile.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if not value.strip():
+                continue
+            rendered = value.strip()
+        elif isinstance(value, list):
+            items = [str(item).strip() for item in value if item is not None and str(item).strip()]
+            if not items:
+                continue
+            rendered = "; ".join(items)
+        else:
+            rendered = str(value)
+        lines.append(f"- {key}: {rendered}")
+    if not lines:
+        return ""
+    return "Known facts about this firm:\n" + "\n".join(lines)
+
+
+def _build_scoring_prompt(
+    icp: ICPConfig,
+    combined_text: str,
+    *,
+    max_chars: int,
+    profile: dict[str, Any] | None = None,
+) -> str:
     lines = [
         "Rate the firm below against each criterion. Return an integer 1-10 for every "
         "criterion, keyed by its exact name.",
@@ -151,6 +187,9 @@ def _build_scoring_prompt(icp: ICPConfig, combined_text: str, *, max_chars: int)
     ]
     for signal in icp.soft_signals:
         lines.append(f"- name: {signal.name}\n  instruction: {signal.prompt.strip()}")
+    facts = _render_profile_facts(profile)
+    if facts:
+        lines.extend(["", facts])
     lines.extend(["", "Firm website text:", combined_text[:max_chars]])
     return "\n".join(lines)
 
@@ -161,11 +200,12 @@ async def rate_soft_signals(
     client: LLMClient,
     *,
     max_chars: int | None = None,
+    profile: dict[str, Any] | None = None,
 ) -> tuple[dict[str, int], list[CallStats]]:
     """One batched LLM call rating all soft signals. Missing ratings default to 1; clamped 1-10."""
     if max_chars is None:
         max_chars = LLMSettings().llm_input_max_chars
-    prompt = _build_scoring_prompt(icp, combined_text, max_chars=max_chars)
+    prompt = _build_scoring_prompt(icp, combined_text, max_chars=max_chars, profile=profile)
     response = await client.extract(prompt, SignalRatings, system=_SCORING_SYSTEM)
     returned = {r.name: _clamp_rating(r.rating) for r in response.content.ratings}
     ratings = {signal.name: returned.get(signal.name, 1) for signal in icp.soft_signals}
@@ -229,7 +269,7 @@ async def score_firm(
             breakdown=breakdown,
         )
 
-    ratings, stats = await rate_soft_signals(combined_text, icp, client)
+    ratings, stats = await rate_soft_signals(combined_text, icp, client, profile=profile)
     score, soft_detail = combine_score(
         ratings, icp.soft_signals, icp.scoring.soft_signal_normalization
     )
