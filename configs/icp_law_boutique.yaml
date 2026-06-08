@@ -82,21 +82,36 @@ soft_signals:
       Look for recent transactions, deal announcements, tombstones, or case studies.
       10 = strong recent deal evidence. 1 = no visible activity. Return a single integer 1-10.
 
-  - name: owner_operated
-    description: Firm is independently owned, not a branch of a larger regional or national firm
+  - name: boutique_size
+    description: Firm size fits the small-but-multi-professional target (sweet spot ~4-8 attorneys)
     weight: 0.20
     prompt: >
-      Does this firm appear to be independently owned (small partnership or boutique)
-      rather than a branch office of a larger firm?
-      10 = clearly independent boutique. 1 = clearly a branch or subsidiary. Return a single integer 1-10.
+      This ICP targets small but multi-professional firms, not solos. Using attorney_count
+      from the known facts when present, and size cues in the website text otherwise, rate
+      how well the firm's size fits the target. 10 means squarely in the sweet spot of
+      roughly 4 to 8 attorneys: enough billable professionals that shared-knowledge retrieval
+      is valuable, but still too lean for enterprise systems. Rate 7 to 8 for firms around
+      3 or 9 to 11 attorneys. Rate solo and two-attorney firms around 4 to 5: a real but
+      limited fit, since the value depends on several people sharing institutional knowledge.
+      Decline steeply above 12 attorneys, and rate large firms of 25 or more at 1 to 2. If
+      attorney_count is absent and the text gives no clear size signal, rate around 5 rather
+      than penalizing the firm for missing data.
 
   - name: texas_market_depth
     description: Firm demonstrates deep Texas or Dallas-specific market knowledge
-    weight: 0.20
+    weight: 0.15
     prompt: >
       How strongly does this firm demonstrate Texas-specific or Dallas-specific market knowledge?
       Look for local deal references, Texas market commentary, local bar or association memberships.
       10 = deep Texas/Dallas focus. 1 = generic national or non-Texas presence. Return a single integer 1-10.
+
+  - name: owner_operated
+    description: Firm is independently owned, not a branch of a larger regional or national firm
+    weight: 0.05
+    prompt: >
+      Does this firm appear to be independently owned (small partnership or boutique)
+      rather than a branch office of a larger firm?
+      10 = clearly independent boutique. 1 = clearly a branch or subsidiary. Return a single integer 1-10.
 
 scoring:
   hard_filter_policy: gate
