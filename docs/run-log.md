@@ -4,6 +4,65 @@ Brief, factual entries for notable full pipeline runs. Newest first.
 
 ---
 
+## 2026-06-08 — Size-enforcement calibration (cached re-score of run `e81032ba`)
+
+Not a new pipeline run. All decisions validated offline against the 43
+completed firms from run `e81032ba`, re-scored against the current
+config using cached scrapes (no fresh search, no fresh scraping).
+
+**Changes shipped:**
+
+- **Structured profile in scoring prompt** (commit `cc18a4e`):
+  vertical-agnostic scorer change. The extracted profile is rendered
+  as a `Known facts:` block at the top of every soft-signal prompt,
+  so a signal can read the model's already-extracted value (e.g.
+  `attorney_count`) instead of re-inferring it from page text.
+- **`boutique_size` soft signal added** (commit `0bad26d`): calibrated
+  from the case-study client's actual ICP. Sweet spot 4-8 attorneys;
+  solos rated as "real but limited fit" so they can be saved by other
+  signals; steep decline above 12; 25+ rated 1-2. Reads `attorney_count`
+  from the structured-facts block.
+- **`boutique_size` weight set to 0.25** (commit `47cfb82`): chosen via
+  an offline weight sweep over 0.20/0.25/0.30 on the 29 firms available
+  at the time, then confirmed against the full 43 in the threshold
+  sweep — same weights validated on consistent samples for both
+  decisions. Final vector cre 0.35 / deal 0.25 / boutique 0.25 /
+  tx 0.1125 / owner 0.0375. At 0.25 Andrews Myers (68 attorneys) lands
+  at 0.495, ~0.055 below the 0.55 line, while every 4-8 sweet-spot firm
+  in the file qualifies and strong-fit solos like Saunders survive on
+  their CRE and deal signals.
+- **`min_qualify_score` kept at 0.55**: validated by a 43-firm offline
+  threshold sweep at 0.50 / 0.55 / 0.60. 0.50 leaves Andrews Myers
+  (0.495) within scoring jitter of the line, defeating the size
+  calibration. 0.60 cuts genuine 4-8 sweet-spot firms (Clausewitz Reyes
+  4, Cutler Smith 7, Biggers 5) plus the strong-CRE solo Saunders. 0.55
+  keeps the sweet-spot cluster qualified and leaves Andrews Myers a
+  clean 0.055 margin.
+
+**Qualified at ≥0.55 under current weights (11 firms):**
+
+| # | Firm | Score | Attorneys |
+|---|---|---|---|
+| 1 | Golden Steves & Gordon, LLP | 0.760 | 17 |
+| 2 | Johnson Petrov LLP | 0.709 | 6 |
+| 3 | Brown Law Firm | 0.697 | 4 |
+| 4 | R L Wilson Law Firm | 0.647 | — |
+| 5 | Kane Russell Coleman Logan | 0.610 | 9 |
+| 6 | Law Offices of Craig W. Saunders | 0.597 | 1 |
+| 7 | Clausewitz Reyes | 0.591 | 4 |
+| 8 | Cutler Smith PC | 0.579 | 7 |
+| 9 | The Biggers Law Firm, P.C. | 0.564 | 5 |
+| 10 | BoyarMiller Attorneys at Law | 0.559 | 15 |
+| 11 | Rogers & Whitley, L.L.P. | 0.552 | 3 |
+
+**Decision artifacts:**
+
+- `scripts/weight_sweep.py` (commit `87bc98c`) — offline weight sweep
+- `scripts/topup_rescore.py` (commit `3589f7d`) — resumable rescore tool with math-only path for already-scored firms
+- `scripts/threshold_sweep.py` (commit `9f10845`) — offline threshold sweep
+
+---
+
 ## 2026-06-07 — Run `e81032ba`
 
 ICP: `configs/icp_law_boutique.yaml` · limit 54 · provider: Cerebras `gpt-oss-120b`
