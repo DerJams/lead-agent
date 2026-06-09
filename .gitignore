@@ -25,6 +25,9 @@ env/
 # Data - outputs are generated, cache is large
 data/cache/
 data/outputs/
+data/*.jsonl
+data/*.log
+data/*.txt
 
 # SQLite databases
 *.db
