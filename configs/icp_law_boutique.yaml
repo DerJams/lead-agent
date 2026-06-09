@@ -84,7 +84,7 @@ soft_signals:
 
   - name: boutique_size
     description: Firm size fits the small-but-multi-professional target (sweet spot ~4-8 attorneys)
-    weight: 0.20
+    weight: 0.25
     prompt: >
       This ICP targets small but multi-professional firms, not solos. Using attorney_count
       from the known facts when present, and size cues in the website text otherwise, rate
@@ -99,7 +99,7 @@ soft_signals:
 
   - name: texas_market_depth
     description: Firm demonstrates deep Texas or Dallas-specific market knowledge
-    weight: 0.15
+    weight: 0.1125
     prompt: >
       How strongly does this firm demonstrate Texas-specific or Dallas-specific market knowledge?
       Look for local deal references, Texas market commentary, local bar or association memberships.
@@ -107,7 +107,7 @@ soft_signals:
 
   - name: owner_operated
     description: Firm is independently owned, not a branch of a larger regional or national firm
-    weight: 0.05
+    weight: 0.0375
     prompt: >
       Does this firm appear to be independently owned (small partnership or boutique)
       rather than a branch office of a larger firm?
